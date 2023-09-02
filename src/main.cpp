@@ -2,22 +2,28 @@
 
 #include <iostream>
 #include <sstream>
-
-/* C libs */
 #include <cstring>
 #include <unistd.h>
 #include <dirent.h>
+#include <signal.h>
 #include <sys/wait.h>
 #include <pwd.h>
 
+#define ESC 27
+
 namespace config
 {
+	void make_prompt (std::string& str)
+	{
+	}
+
 	std::string vars[256];
 }
 
 namespace cli
 {
 	void exit (char *argv[]);
+	void prev_cmd (char *argv[]);
 
 	/* holds info about the user */
 	typedef struct {
@@ -38,15 +44,14 @@ namespace cli
 
 	struct SHELL_CMDS {
 		const char *cmd;
-		void (*fn)(char *argv[]);
+		void (*fn)(char **argv);
 	};
 
 	/* the built in shell commands */
 	struct SHELL_CMDS shell_cmds[] = {
 		{ "export", nullptr },
 		{ "exit", cli::exit },
-		{ "export", nullptr },
-		{ "export", nullptr },
+		{ "!!", cli::prev_cmd },
 	};
 
 	/* gets data about the user */
@@ -54,7 +59,7 @@ namespace cli
 	{
 		struct passwd *pwd;
 
-		if (first)
+		if (first == true)
 			info = new INFO[sizeof(*info)];
 
 		/* get uid */
@@ -69,7 +74,12 @@ namespace cli
 		info->home = strndup(pwd->pw_dir, strlen(pwd->pw_dir));
 	}
 
-	void exit (char *argv[])
+	void prev_cmd (char **argv)
+	{
+
+	}
+
+	void exit (char **argv)
 	{
 		delete[] info;
 		exit(0);
@@ -85,10 +95,24 @@ namespace cli
 		return -1;
 	}
 
+	/* parses the cmd line args passed to the shell program */
+	// TODO create some args and bools for them 
+	void parse_args (char *argv[])
+	{
+		for (size_t i = 0; argv[i] != nullptr; i++)
+			if (argv[i][0] == '-' && argv[i][1] != (char) 0)
+				for (size_t k = 1; argv[i][k] != (char) 0; k++)
+					switch (argv[i][k]) {
+						case 'r':
+							break;
+					}
+	}
+
 	/* the entry point for the cli */
 	void entry (void)
 	{
-		char *argv[256];
+		constexpr size_t MAX_LEN = 256;
+		char *argv[MAX_LEN];
 		int argc;
 		int status;
 		ssize_t ret;
@@ -107,11 +131,21 @@ namespace cli
 			/* splitting string into command and argv */
 			std::istringstream iss(input);
 
-			for (argc = 0; std::getline(iss, tmp, ' '); argc++)
-				argv[argc] = strndup(tmp.c_str(), strlen(tmp.c_str()));
+			for (argc = 0; std::getline(iss, tmp, ' '); argc++) {
+				if (argc < MAX_LEN)
+					argv[argc] = strndup(tmp.c_str(), strlen(tmp.c_str()));
+				else {
+					std::cerr << "ERROR: Command too long!" << std::endl;
+					argv[0] = nullptr;
+					break;
+				}
+			}
+
+			if (argv[0] == nullptr)
+				; // Do nothing 
 
 			/* check for shell commands */
-			if ((ret = is_built_in(argv[0])) != -1)
+			else if ((ret = is_built_in(argv[0])) != -1)
 				shell_cmds[ret].fn(argv);
 
 			/* if argv[0] is not a shell command then execute a binary */
@@ -145,6 +179,6 @@ namespace cli
 
 int main (int argc, char *argv[])
 {
-	if (argc < 2) cli::entry();
+	(argc < 2) ? cli::entry() : cli::parse_args(argv);
 	return 0;
 }
