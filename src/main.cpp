@@ -118,7 +118,7 @@ namespace cmd
 
 	}
 
-	void exit (char **argv)
+	void quit (char **argv)
 	{
 		exit(0);
 	}
@@ -133,9 +133,6 @@ namespace cmd
 
 namespace cli
 {
-	void exit (char *argv[]);
-	void prev_cmd (char *argv[]);
-
 	struct SHELL_CMDS {
 		const char *cmd;
 		void (*fn)(char **argv);
@@ -145,9 +142,10 @@ namespace cli
 	 * Ones at top are 'most used' */
 	struct SHELL_CMDS shell_cmds[] = {
 		{ "cd", cmd::cd },
-		{ "export", nullptr },
-		{ "exit", cmd::exit },
 		{ "!!", cmd::prev_cmd },
+		{ "export", nullptr },
+		{ "exit", cmd::quit },
+		{ "quit", cmd::quit },
 	};
 
 		/* returns index of the matching command in shell_cmds struct */
@@ -180,7 +178,7 @@ namespace cli
 		pid_t pid, ppid;
 
 		if (argv[0] == nullptr)
-			return 0; // Do nothing 
+			return 0; // Do nothing, if nothing is passed
 
 		/* check for shell commands */
 		else if ((ret = is_built_in(strdup(argv[0]))) != -1)
@@ -241,7 +239,7 @@ namespace cli
 				argv[i] = nullptr;
 		}
 
-		exit(nullptr);
+		cmd::quit(nullptr);
 	}
 }
 
