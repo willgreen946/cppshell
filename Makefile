@@ -7,4 +7,4 @@ all:
 	mv $(BIN) bin/$(BIN)
 
 run:
-	./$(BIN)
+	./bin/$(BIN)
