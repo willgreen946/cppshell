@@ -2,10 +2,9 @@
 
 #include <iostream>
 #include <vector>
-#include <sstream>
 #include <map>
+#include <sstream>
 #include <fstream>
-#include <unordered_map>
 #include <cstring>
 #include <unistd.h>
 #include <dirent.h>
@@ -28,25 +27,19 @@ namespace sys
 		char *hostname; // hostname of machine
 		uid_t uid;  // user uid 
 		gid_t gid; // user gid
-		time_t change; // last password change 
 		char *pw_class; // user access class
-		char *gecos; // honeywell login info
-		char *def_shell; // default shell
 		char *home; // home directory
-		time_t expire; // account expiration 
-		int fields; // internal fields	
 	}USR_INFO;
 
 	USR_INFO *usr_info;
 
 	/* gets data about the user from pwd */
-	void get_info (bool first)
+	void get_info (void)
 	{
 		struct passwd *pwd;
 		char *tmp = new char[1024];
 
-		if (first == true)
-			sys::usr_info = new USR_INFO[sizeof(*sys::usr_info)];
+		sys::usr_info = new USR_INFO[sizeof(*sys::usr_info)];
 
 		/* get uid */
 		sys::usr_info->uid = getuid();
@@ -81,8 +74,12 @@ namespace config
 	/* looks up a variable */
 	std::string get_var (std::string variable)
 	{
-		std::string value;
-		return value;
+		if (varmap.find(variable) != varmap.end())
+			return config::varmap[variable];
+		else
+			return " "; // Return whitespace
+
+		return " ";
 	}
 
 	/* makes the config file path from the username and the home dir */
@@ -104,8 +101,8 @@ namespace config
 	/* sets the prompt from the config */
 	void set_prompt (std::string& str)
 	{
-		std::string prompt;
 		std::vector<std::string> tmp;
+		char *prompt = new char[sizeof(str)];
 		char *s[256];
 
 		if (usedefs_f == true || str[0] == (char) 0) {
@@ -115,56 +112,40 @@ namespace config
 
 		/* look for variables in the prompt definition */
 		for (size_t i = 0; i < str.length(); i++) {
-			if (str[i] == '@' && i+1 != str.length()) {
-				switch (str[i+1]) {
+			if (str[i] == '@' && i++ != str.length()) {
+				switch (str[i]) {
 					case 'h':
-						prompt.append(sys::usr_info->hostname);
-						i++;
+						strcat(prompt, config::varmap["HOST"].c_str());
 						break;
 					case 'u':
-						prompt.append(sys::usr_info->username);
-						i++;
+						strcat(prompt, config::varmap["USER"].c_str());
 						break;
 					case 't':
 						break;
 					default:
-						std::cout << "Unknown option " << str[i] << str[i+1] << '\n';
+						std::cout << "Unknown option " << str[i-1] << str[i] << '\n';
 						break;
 				}	
 
 			}
 
-			else {
-				tmp.push_back(&str[i]);
-				//std::cout << tmp[i] << '\n';
-				//std::cout << str[i] << '\n';
-			}
-
-			prompt.append(&str[i]);
+			else strncat(prompt, &str[i], 1);
 		}
 
 		config::varmap["PS1"] = prompt;
 	}
 
+	/* decide what to do with config args */
 	int parse (std::string& var, std::string& arg)
 	{
 		/* check for comments */
 		if (arg[0] == '#')
 			return 0;
 
-		// TODO
-		/* check if it's a built in variable */ 
-		/*for (int i = 0; i < config::var_map_max; i++)
-			if (config::var_map[i].var == var)
-				config::var_map[i].fn(arg);*/
+		if (var == "PS1" || var == "PROMPT")
+			set_prompt(arg);
 
 		return 0;
-	}
-
-	/* runs all setup functions as default values */
-	void set_defs (void)
-	{
-		config::varmap["PS1"] = "# ";
 	}
 
 	void read (void)
@@ -175,12 +156,9 @@ namespace config
 
 		file.open(config::varmap["CONFIG"], std::ios::out);
 
-		/* if no file is found or cant be opened */
-		if (!file.is_open()) {
-			usedefs_f = true;
-			set_defs();
+		/* if no file is found or cant be opened do nothing */
+		if (!file.is_open())
 			return;
-		}
 
 		/* read until the end and pass it off to the parser */
 		for (size_t i = 0; std::getline(file, line); i++) {
@@ -197,11 +175,21 @@ namespace config
 	}
 
 	/* sets up variables from the config file */
-	void setup (bool first)
+	void setup (void)
 	{
-		sys::get_info(first);
-		config::make_path();
+		/* get info about the user */
+		sys::get_info();
+
+		/* setup some default variables */
 		config::varmap["HOME"] = sys::usr_info->home; 
+		config::varmap["HOST"] = sys::usr_info->hostname; 
+		config::varmap["USER"] = sys::usr_info->username; 
+		config::varmap["SHELL"] = "cppshell";
+		config::varmap["PS1"] = "# ";
+		config::varmap["CONFIG"] = "/";
+
+		/* attempt to read the config where ^ may change */
+		config::make_path();
 		config::read();
 	}
 }
@@ -244,18 +232,32 @@ namespace cmd
 	/* prints text to console passed at command line */
 	void echo (char **argv)
 	{
-		std::string tmp;
+		char *tmp = new char[sizeof(argv)];
 
 		for (size_t i = 1; argv[i] != nullptr; i++) {
 			/* check for variables */
 			if (argv[i][0] == '$' && argv[i][1] != (char) 0) {
 				for (size_t k = 1; argv[i][k] != (char) 0; k++)
-					tmp.append(&argv[i][k]);
+					strncat(tmp, &argv[i][k], 1);
 
+				/* print out variable */
 				std::cout << config::get_var(tmp) << " ";
+
+				/* set all tmp chars to \0 */
+				for (size_t k = 0; tmp[k] != (char) 0; k++)
+			  	tmp[k] = (char) 0;
+
+				i++;
 			} else std::cout << argv[i] << " ";
 		}
+
 		std::cout << '\n';
+
+		/* set all tmp chars to \0 */
+		for (size_t i = 0; tmp[i] != (char) 0; i++)
+			tmp[i] = (char) 0;
+
+		delete[] tmp;
 	}
 
 	/* runs the last command entered */
@@ -297,15 +299,6 @@ namespace cli
 		const char *cmd;
 		void (*fn)(char **argv);
 	};
-
-	/*typedef void (*cmd_fn)(char **argv);
-	std::unordered_map<std::string, cli::cmd_fn> map = {
-		{ "cd", cmd::cd },
-		{ "!!", cmd::prev_cmd },
-		{ "export", nullptr },
-		{ "exit", cmd::quit },
-		{ "quit", cmd::quit },
-	};*/
 
 	/* the built in shell commands 
 	 * Ones at top are 'most used' */
@@ -388,7 +381,7 @@ namespace cli
 		char *argv[MAX_LEN];
 		std::string input, tmp;
 		
-		config::setup(true);
+		config::setup();
 
 		/* the main loop of the program */
 		while (true) {
