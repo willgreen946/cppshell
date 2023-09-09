@@ -177,13 +177,22 @@ namespace config
 	/* sets up variables from the config file */
 	void setup (void)
 	{
+		char wd[256];
+
 		/* get info about the user */
 		sys::get_info();
 
+		/* get working directory */
+		if (getcwd(wd, sizeof(wd)) == nullptr) {
+			std::cout << "Error with getcwd" << '\n';
+		}
+
+		std::cout << wd << '\n';
 		/* setup some default variables */
 		config::varmap["HOME"] = sys::usr_info->home; 
 		config::varmap["HOST"] = sys::usr_info->hostname; 
 		config::varmap["USER"] = sys::usr_info->username; 
+		config::varmap["PWD"] = wd;
 		config::varmap["SHELL"] = "cppshell";
 		config::varmap["PS1"] = "# ";
 		config::varmap["CONFIG"] = "/";
@@ -379,6 +388,7 @@ namespace cli
 		constexpr size_t MAX_LEN = 256;
 		int argc;
 		char *argv[MAX_LEN];
+		char wd[256];
 		std::string input, tmp;
 		
 		config::setup();
@@ -403,14 +413,20 @@ namespace cli
 
 			cli::run_cmd(argc, argv);
 
+			/* set working directory */
+			getcwd(wd, sizeof(wd));
+			config::varmap["PWD"] = wd;
+
 			/* save history in memory */
 			cmd::history.write(argv);
 
 			/* clear the values */
 			for (size_t i = 0; i < argc; i++)
 				argv[i] = nullptr;
-		}
 
+			memset(wd, 0, sizeof((char*)wd));
+		}
+		
 		cmd::quit(nullptr);
 	}
 }
