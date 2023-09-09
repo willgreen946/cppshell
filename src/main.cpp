@@ -3,7 +3,9 @@
 #include <iostream>
 #include <vector>
 #include <sstream>
+#include <map>
 #include <fstream>
+#include <unordered_map>
 #include <cstring>
 #include <unistd.h>
 #include <dirent.h>
@@ -13,11 +15,17 @@
 
 #define ESC 27
 
+namespace cli
+{
+	int run_cmd (int argc, char **argv);
+}
+
 namespace sys 
 {
 	/* holds info about the user */
 	typedef struct {
-		char *username; // username
+		char *username; // username of caller
+		char *hostname; // hostname of machine
 		uid_t uid;  // user uid 
 		gid_t gid; // user gid
 		time_t change; // last password change 
@@ -34,8 +42,8 @@ namespace sys
 	/* gets data about the user from pwd */
 	void get_info (bool first)
 	{
-
 		struct passwd *pwd;
+		char *tmp = new char[1024];
 
 		if (first == true)
 			sys::usr_info = new USR_INFO[sizeof(*sys::usr_info)];
@@ -46,48 +54,36 @@ namespace sys
 		/* getting user information */
 		pwd = getpwuid(sys::usr_info->uid);
 
-		/* setting user information */
+		/* setting usename and home directory */
 		sys::usr_info->username = strndup(pwd->pw_name, 256);
 		sys::usr_info->home = strndup(pwd->pw_dir, 256);
-	}
 
-	/* returns hostname of machine */
-	std::string get_host (void)
-	{
-		std::string hostname;
-		char *name = new char[256];
+		/* setting hostname of machine */
+		gethostname(tmp, 256);
+		sys::usr_info->hostname = tmp;
 
-		gethostname(name, 256);
-		hostname = name;
-
-		delete[] name;
-		return hostname;
+		delete[] tmp;
 	}
 }
 
 namespace config
 {
+	bool usedefs_f = false;
 	void set_prompt (std::string& str);
 
-	struct VAR_MAP {
-		std::string var;
-		void (*fn)(std::string& str);
-	};
+	/* this is where all the variables are stored
+	 * some rules:
+	 * all built in variables to be uppercase
+	 * the first string element is the variable name
+	 * the second string is the value of that variable */
+	std::map<std::string, std::string> varmap;
 
-	constexpr int var_map_max = 2;
-	struct VAR_MAP var_map[var_map_max] = {
-		{ "PS1", set_prompt }, 
-		{ "PROMPT", set_prompt }, 
-	};
-
-	typedef struct {
-		std::string path;
-		std::string home;
-		std::string prompt;
-		std::vector<std::string> usr_vars;
-	}VARS;
-
-	VARS vars;
+	/* looks up a variable */
+	std::string get_var (std::string variable)
+	{
+		std::string value;
+		return value;
+	}
 
 	/* makes the config file path from the username and the home dir */
 	void make_path (void)
@@ -99,58 +95,90 @@ namespace config
 		strncat(path, sys::usr_info->home, 256);
 		strncat(path, conf, 256);
 
-		config::vars.path = path;
+		config::varmap["CONFIG"] = path;
 
 		delete[] path;
 	}
 
+	// TODO
 	/* sets the prompt from the config */
 	void set_prompt (std::string& str)
 	{
 		std::string prompt;
-		std::vector<std::string> var;
+		std::vector<std::string> tmp;
+		char *s[256];
 
-		/* look for variables in the prompt definition */
-		for (size_t i = 0, k = 0; i < str.length(); i++) {
-			if (str[i] == '@' && i+1 != str.length())
-				switch (str[i+1]) {
-					case 'h':
-						var.push_back(sys::get_host());
-						break;
-					case 'u':
-						break;
-					default:
-						std::cout << "Unknown option " << str[i] << str[i+1] << std::endl;
-						break;
-				}
+		if (usedefs_f == true || str[0] == (char) 0) {
+			config::varmap["PS1"] = "# ";
+			return;
 		}
 
-		prompt = str;
-		config::vars.prompt = prompt;
+		/* look for variables in the prompt definition */
+		for (size_t i = 0; i < str.length(); i++) {
+			if (str[i] == '@' && i+1 != str.length()) {
+				switch (str[i+1]) {
+					case 'h':
+						prompt.append(sys::usr_info->hostname);
+						i++;
+						break;
+					case 'u':
+						prompt.append(sys::usr_info->username);
+						i++;
+						break;
+					case 't':
+						break;
+					default:
+						std::cout << "Unknown option " << str[i] << str[i+1] << '\n';
+						break;
+				}	
+
+			}
+
+			else {
+				tmp.push_back(&str[i]);
+				//std::cout << tmp[i] << '\n';
+				//std::cout << str[i] << '\n';
+			}
+
+			prompt.append(&str[i]);
+		}
+
+		config::varmap["PS1"] = prompt;
 	}
 
 	int parse (std::string& var, std::string& arg)
 	{
+		/* check for comments */
+		if (arg[0] == '#')
+			return 0;
+
+		// TODO
 		/* check if it's a built in variable */ 
-		for (int i = 0; i < config::var_map_max; i++)
+		/*for (int i = 0; i < config::var_map_max; i++)
 			if (config::var_map[i].var == var)
-				config::var_map[i].fn(arg);
+				config::var_map[i].fn(arg);*/
 
 		return 0;
 	}
 
+	/* runs all setup functions as default values */
+	void set_defs (void)
+	{
+		config::varmap["PS1"] = "# ";
+	}
+
 	void read (void)
 	{
-		bool usedefs_f = false;
 		std::ifstream file;
 		std::string line;
 		std::vector<std::string> tmp;
 
-		file.open(config::vars.path, std::ios::out);
+		file.open(config::varmap["CONFIG"], std::ios::out);
 
 		/* if no file is found or cant be opened */
 		if (!file.is_open()) {
 			usedefs_f = true;
+			set_defs();
 			return;
 		}
 
@@ -173,15 +201,79 @@ namespace config
 	{
 		sys::get_info(first);
 		config::make_path();
+		config::varmap["HOME"] = sys::usr_info->home; 
 		config::read();
 	}
 }
 
 namespace cmd
 {
+	class history {
+		public:
+			std::string prev;
+			std::vector<std::string> history_store;
+
+			std::string mono_str (char *str[])
+			{
+				std::string mono;
+
+				for (size_t i = 0; str[i] != nullptr; i++) {
+					if (i > 0) {
+						mono += " ";
+						mono += str[i];
+					}
+
+					else mono += str[i];
+				}
+
+				return mono;
+			}
+
+			/* writes the history the history vector */
+			void write (char *argv[])
+			{
+				std::string str = cmd::history::mono_str(argv);
+				history_store.push_back(str);
+				//std::cout << "his = " << *history_store.rbegin() << '\n';
+				//std::cout << "str = " << str << '\n';
+			}
+	};
+
+	cmd::history history;
+
+	/* prints text to console passed at command line */
+	void echo (char **argv)
+	{
+		std::string tmp;
+
+		for (size_t i = 1; argv[i] != nullptr; i++) {
+			/* check for variables */
+			if (argv[i][0] == '$' && argv[i][1] != (char) 0) {
+				for (size_t k = 1; argv[i][k] != (char) 0; k++)
+					tmp.append(&argv[i][k]);
+
+				std::cout << config::get_var(tmp) << " ";
+			} else std::cout << argv[i] << " ";
+		}
+		std::cout << '\n';
+	}
+
+	/* runs the last command entered */
+	// TODO
 	void prev_cmd (char **argv)
 	{
+		int argc;
+		char *arg[256];
+		//std::string str = cmd::history::*history_store.rbegin();
+		std::string tmp;
+		//std::istringstream iss(str);
 
+		/*for (int i = 0; i < 1; i++, argc++) {
+			std::getline(iss, tmp, ' ');
+			if (i == 0) cmd_str = tmp;
+		}*/
+
+		//cli::run_cmd(argc, str.c_str());
 	}
 
 	void quit (char **argv)
@@ -193,9 +285,9 @@ namespace cmd
 	void cd (char **argv)
 	{
 		if (argv[1] == nullptr)
-			chdir(sys::usr_info->home);
+			chdir(config::varmap["HOME"].c_str());
 		else if (chdir(argv[1]) != 0)
-			std::cerr << argv[1] << ": No such directory" << std::endl;
+			std::cerr << argv[1] << ": No such directory" << '\n';
 	}
 }
 
@@ -206,11 +298,21 @@ namespace cli
 		void (*fn)(char **argv);
 	};
 
+	/*typedef void (*cmd_fn)(char **argv);
+	std::unordered_map<std::string, cli::cmd_fn> map = {
+		{ "cd", cmd::cd },
+		{ "!!", cmd::prev_cmd },
+		{ "export", nullptr },
+		{ "exit", cmd::quit },
+		{ "quit", cmd::quit },
+	};*/
+
 	/* the built in shell commands 
 	 * Ones at top are 'most used' */
-	constexpr size_t max = 5;
+	constexpr size_t max = 6;
 	struct SHELL_CMDS shell_cmds[max] = {
 		{ "cd", cmd::cd },
+		{ "echo", cmd::echo },
 		{ "!!", cmd::prev_cmd },
 		{ "export", nullptr },
 		{ "exit", cmd::quit },
@@ -228,6 +330,7 @@ namespace cli
 		for (size_t i = 0; i < max; i++)
 			if (!strncmp(shell_cmds[i].cmd, cmd, strlen(shell_cmds[i].cmd)))
 				return i;
+
 		return -1;
 	}
 
@@ -264,7 +367,7 @@ namespace cli
 
 			if (pid == 0) {
 				execvp(argv[0], argv);
-				std::cerr << argv[0] << ": Unkown Command" << std::endl;
+				std::cerr << argv[0] << ": Unkown Command" << '\n';
 			}
 
 			else
@@ -284,12 +387,12 @@ namespace cli
 		int argc;
 		char *argv[MAX_LEN];
 		std::string input, tmp;
-
+		
 		config::setup(true);
 
 		/* the main loop of the program */
 		while (true) {
-			std::cout << config::vars.prompt;
+			std::cout << config::varmap["PS1"];
 			std::getline(std::cin, input);
 
 			/* splitting string into command and argv */
@@ -299,13 +402,16 @@ namespace cli
 				if (argc < MAX_LEN)
 					argv[argc] = strndup(tmp.c_str(), strlen(tmp.c_str()));
 				else {
-					std::cerr << "ERROR: Command too long!" << std::endl;
+					std::cerr << "ERROR: Command too long!" << '\n';
 					argv[0] = nullptr;
 					break;
 				}
 			}
 
 			cli::run_cmd(argc, argv);
+
+			/* save history in memory */
+			cmd::history.write(argv);
 
 			/* clear the values */
 			for (size_t i = 0; i < argc; i++)
