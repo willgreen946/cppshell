@@ -61,8 +61,7 @@ namespace sys
 
 namespace config
 {
-	bool usedefs_f = false;
-	void set_prompt (std::string& str);
+	void set_prompt (void);
 
 	/* this is where all the variables are stored
 	 * some rules:
@@ -70,6 +69,9 @@ namespace config
 	 * the first string element is the variable name
 	 * the second string is the value of that variable */
 	std::map<std::string, std::string> varmap;
+
+	/* holds the string for the PS1 */
+	std::string prompt_str;
 
 	/* looks up a variable */
 	std::string get_var (std::string variable)
@@ -97,42 +99,60 @@ namespace config
 		delete[] path;
 	}
 
-	// TODO
-	/* sets the prompt from the config */
-	void set_prompt (std::string& str)
+	/* this returns a string to an @ variable */
+	std::string get_id_var (char ch)
 	{
-		std::vector<std::string> tmp;
-		char *prompt = new char[sizeof(str)];
-		char *s[256];
+		std::string value;
 
-		if (usedefs_f == true || str[0] == (char) 0) {
+		/* look for variables in the prompt definition */
+				switch (ch) {
+					case 'h':
+						value = config::varmap["HOST"];
+						break;
+					case 'u':
+						value = config::varmap["USER"];
+						break;
+					case 't':
+						value = config::varmap["TIME"];
+						break;
+					case 'p':
+						value = config::varmap["PWD"];
+						break;
+					default:
+						std::cout << "Unknown option " << '@' << ch << '\n';
+						return " "; // Return whitespace instead of null
+				}	
+
+		return value;
+	}
+
+	/* sets the prompt from the config */
+	void set_prompt (void)
+	{
+		std::string str = config::varmap["PS1"];
+
+		char *prompt = new char[sizeof(str)];
+
+		if (str[0] == (char) 0) {
 			config::varmap["PS1"] = "# ";
 			return;
 		}
 
-		/* look for variables in the prompt definition */
+		/* concatonate prompt and looks for vars */
 		for (size_t i = 0; i < str.length(); i++) {
-			if (str[i] == '@' && i++ != str.length()) {
-				switch (str[i]) {
-					case 'h':
-						strcat(prompt, config::varmap["HOST"].c_str());
-						break;
-					case 'u':
-						strcat(prompt, config::varmap["USER"].c_str());
-						break;
-					case 't':
-						break;
-					default:
-						std::cout << "Unknown option " << str[i-1] << str[i] << '\n';
-						break;
-				}	
-
-			}
-
+			if (str[i] == '@' && i++ != str.length())
+				strcat(prompt, config::get_id_var(str[i]).c_str());
+			else if (str[i] == '\\' && i+1 != str.length())
+				strncat(prompt, "@", 1);
 			else strncat(prompt, &str[i], 1);
 		}
 
+		config::prompt_str = str; 
 		config::varmap["PS1"] = prompt;
+
+		/* reset values and free memory */
+		memset(prompt, 0, sizeof((char*)prompt));
+		delete[] prompt;
 	}
 
 	/* decide what to do with config args */
@@ -142,17 +162,14 @@ namespace config
 		if (arg[0] == '#')
 			return 0;
 
-		if (var == "PS1" || var == "PROMPT")
-			set_prompt(arg);
-
+		config::varmap[var] = arg;
 		return 0;
 	}
 
 	void read (void)
 	{
 		std::ifstream file;
-		std::string line;
-		std::vector<std::string> tmp;
+		std::string line, fw, args;
 
 		file.open(config::varmap["CONFIG"], std::ios::out);
 
@@ -164,11 +181,13 @@ namespace config
 		for (size_t i = 0; std::getline(file, line); i++) {
 			std::istringstream iss(line);
 
-			/* get the words */
-			for (std::string line; std::getline(iss, line, '=');)
-				tmp.push_back(line);
-
-			config::parse(tmp[0], tmp[1]);
+			for (int ln = 0; std::getline(iss, line, '='); ln++) {
+				if (ln == 0) fw = line;
+				else args = line;
+			}
+			
+			std::cout << fw << '\n' << args << '\n';
+			config::parse(fw, args);
 		}
 
 		file.close();
@@ -183,11 +202,9 @@ namespace config
 		sys::get_info();
 
 		/* get working directory */
-		if (getcwd(wd, sizeof(wd)) == nullptr) {
-			std::cout << "Error with getcwd" << '\n';
-		}
+		if (getcwd(wd, sizeof(wd)) == nullptr)
+			std::cerr << "ERROR: with getcwd" << '\n';
 
-		std::cout << wd << '\n';
 		/* setup some default variables */
 		config::varmap["HOME"] = sys::usr_info->home; 
 		config::varmap["HOST"] = sys::usr_info->hostname; 
@@ -292,6 +309,11 @@ namespace cmd
 		exit(0);
 	}
 
+	void export_cmd (char **argv)
+	{
+
+	}
+
 	/* implementation of the cd command */
 	void cd (char **argv)
 	{
@@ -316,7 +338,7 @@ namespace cli
 		{ "cd", cmd::cd },
 		{ "echo", cmd::echo },
 		{ "!!", cmd::prev_cmd },
-		{ "export", nullptr },
+		{ "export", cmd::export_cmd },
 		{ "exit", cmd::quit },
 		{ "quit", cmd::quit },
 	};
@@ -392,6 +414,7 @@ namespace cli
 		std::string input, tmp;
 		
 		config::setup();
+		config::set_prompt();
 
 		/* the main loop of the program */
 		while (true) {
