@@ -91,7 +91,7 @@ namespace config
 		char *path = new char [sizeof(sys::usr_info->home) + strlen(conf)];
 
 		/* creating the path as a single string */
-		strncat(path, sys::usr_info->home, 256);
+		strcat(path, sys::usr_info->home);
 		strncat(path, conf, 256);
 
 		config::varmap["CONFIG"] = path;
@@ -131,7 +131,7 @@ namespace config
 	{
 		std::string str = config::varmap["PS1"];
 
-		char *prompt = new char[sizeof(str)];
+		char *prompt = new char[256];
 
 		if (str[0] == (char) 0) {
 			config::varmap["PS1"] = "# ";
@@ -143,7 +143,7 @@ namespace config
 			if (str[i] == '@' && i++ != str.length())
 				strcat(prompt, config::get_id_var(str[i]).c_str());
 			else if (str[i] == '\\' && i+1 != str.length())
-				strncat(prompt, "@", 1);
+				strcat(prompt, "@");
 			else strncat(prompt, &str[i], 1);
 		}
 
@@ -151,7 +151,7 @@ namespace config
 		config::varmap["PS1"] = prompt;
 
 		/* reset values and free memory */
-		memset(prompt, 0, sizeof((char*)prompt));
+		memset(prompt, 0, strlen(prompt));
 		delete[] prompt;
 	}
 
@@ -290,8 +290,8 @@ namespace cmd
 	// TODO
 	void prev_cmd (char **argv)
 	{
-		int argc;
-		char *arg[256];
+		//int argc;
+		//char *arg[256];
 		//std::string str = cmd::history::*history_store.rbegin();
 		std::string tmp;
 		//std::istringstream iss(str);
@@ -425,9 +425,9 @@ namespace cli
 
 		/* clear value of argv & the value of tmp */
 		for (size_t i = 0; argv[i] != NULL; i++)
-			memset(argv[i], 0, sizeof((char*)argv[i]));
+			memset(argv[i], 0, strlen(argv[i]));
 
-		memset(tmp, 0, sizeof((char*)tmp));
+		memset(tmp, 0, strlen(*tmp));
 	}
 
 	/* takes input from the user then sends string to parser
@@ -438,7 +438,7 @@ namespace cli
 		char *pbuf;
 
 		for (;;) {
-		cli::print_prompt();
+			cli::print_prompt();
 
 			/* take user input */
 			if (fgets(buf, sizeof(buf), stdin) != NULL)
