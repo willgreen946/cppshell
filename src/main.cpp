@@ -16,7 +16,7 @@
 
 namespace cli
 {
-	int run_cmd (int argc, char **argv);
+	int run_cmd (char *argv[]);
 }
 
 namespace sys 
@@ -372,7 +372,7 @@ namespace cli
 	}
 
 	/* runs a command */
-	int run_cmd (int argc, char **argv)
+	int run_cmd (char *argv[])
 	{
 		int ret, status;
 		pid_t pid, ppid;
@@ -404,53 +404,62 @@ namespace cli
 		return 0;
 	}
 
+	void print_prompt (void)
+	{
+		std::cout << config::varmap["PS1"];
+	}
+
+	/* splits up string by whitespace and executes it */
+	void cli_str_handler (char *str)
+	{
+		char *argv[256];
+		char **tmp;
+
+		/* split up string by whitespace chars like tab and space */
+		for (tmp = argv; (*tmp = strsep(&str, " \t")) != NULL;)
+			if (**tmp != (char) 0)
+				if (++tmp >= &argv[256])
+					break;
+
+		cli::run_cmd(argv);
+
+		/* clear value of argv & the value of tmp */
+		for (size_t i = 0; argv[i] != NULL; i++)
+			memset(argv[i], 0, sizeof((char*)argv[i]));
+
+		memset(tmp, 0, sizeof((char*)tmp));
+	}
+
+	/* takes input from the user then sends string to parser
+	 * this is the main loop of the program */
+	void input_loop (void)
+	{
+		char buf[256];
+		char *pbuf;
+
+		for (;;) {
+		cli::print_prompt();
+
+			/* take user input */
+			if (fgets(buf, sizeof(buf), stdin) != NULL)
+				if ((pbuf = strchr(buf, '\n')) != NULL)
+					*pbuf = (char) 0;
+
+			/* pass the string off to the parser */
+			cli::cli_str_handler(buf);
+
+			/* clear value of buf */
+			for (size_t i = 0; buf[i] != (char) 0; i++)
+				buf[i] = (char) 0;
+		}
+	}
+
 	/* the entry point for the cli */
 	void entry (void)
 	{
-		constexpr size_t MAX_LEN = 256;
-		int argc;
-		char *argv[MAX_LEN];
-		char wd[256];
-		std::string input, tmp;
-		
 		config::setup();
 		config::set_prompt();
-
-		/* the main loop of the program */
-		while (true) {
-			std::cout << config::varmap["PS1"];
-			std::getline(std::cin, input);
-
-			/* splitting string into command and argv */
-			std::istringstream iss(input);
-
-			for (argc = 0; std::getline(iss, tmp, ' '); argc++) {
-				if (argc < MAX_LEN)
-					argv[argc] = strndup(tmp.c_str(), strlen(tmp.c_str()));
-				else {
-					std::cerr << "ERROR: Command too long!" << '\n';
-					argv[0] = nullptr;
-					break;
-				}
-			}
-
-			cli::run_cmd(argc, argv);
-
-			/* set working directory */
-			getcwd(wd, sizeof(wd));
-			config::varmap["PWD"] = wd;
-
-			/* save history in memory */
-			cmd::history.write(argv);
-
-			/* clear the values */
-			for (size_t i = 0; i < argc; i++)
-				argv[i] = nullptr;
-
-			memset(wd, 0, sizeof((char*)wd));
-		}
-		
-		cmd::quit(nullptr);
+		cli::input_loop();
 	}
 }
 
