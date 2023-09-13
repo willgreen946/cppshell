@@ -14,6 +14,8 @@
 
 #define ESC 27
 
+constexpr size_t MAX_STR_LEN = 256;
+
 namespace cli
 {
 	int run_cmd (char *argv[]);
@@ -23,12 +25,12 @@ namespace sys
 {
 	/* holds info about the user */
 	typedef struct {
-		char *username; // username of caller
-		char *hostname; // hostname of machine
+		const char *username; // username of caller
+		const char *hostname; // hostname of machine
+		const char *pw_class; // user access class
+		const char *home; // home directory
 		uid_t uid;  // user uid 
 		gid_t gid; // user gid
-		char *pw_class; // user access class
-		char *home; // home directory
 	}USR_INFO;
 
 	USR_INFO *usr_info;
@@ -37,7 +39,7 @@ namespace sys
 	void get_info (void)
 	{
 		struct passwd *pwd;
-		char *tmp = new char[1024];
+		char *tmp = new char[::MAX_STR_LEN];
 
 		sys::usr_info = new USR_INFO[sizeof(*sys::usr_info)];
 
@@ -48,13 +50,13 @@ namespace sys
 		pwd = getpwuid(sys::usr_info->uid);
 
 		/* setting usename and home directory */
-		sys::usr_info->username = strndup(pwd->pw_name, 256);
-		sys::usr_info->home = strndup(pwd->pw_dir, 256);
+		sys::usr_info->username = strndup(pwd->pw_name, ::MAX_STR_LEN);
+		sys::usr_info->home = strndup(pwd->pw_dir, ::MAX_STR_LEN);
+		std::cout << sys::usr_info->home << '\n' << sys::usr_info->username << '\n';
 
 		/* setting hostname of machine */
-		gethostname(tmp, 256);
-		sys::usr_info->hostname = tmp;
-
+		gethostname(tmp, ::MAX_STR_LEN);
+		sys::usr_info->hostname = strndup(tmp, ::MAX_STR_LEN);
 		delete[] tmp;
 	}
 }
@@ -87,13 +89,19 @@ namespace config
 	/* makes the config file path from the username and the home dir */
 	void make_path (void)
 	{
-		constexpr char *conf = (char*) "/.cppshell.conf";
-		char *path = new char [sizeof(sys::usr_info->home) + strlen(conf)];
+		const char *conf = "/.cppshell.conf";
+		char *path = new char [::MAX_STR_LEN];
+
+		config::varmap["CONFIG"].clear();
 
 		/* creating the path as a single string */
 		strcat(path, sys::usr_info->home);
-		strncat(path, conf, 256);
 
+		std::cout << path << '\n';
+
+		strncat(path, conf, ::MAX_STR_LEN);
+
+		std::cout << path << '\n';
 		config::varmap["CONFIG"] = path;
 
 		delete[] path;
@@ -131,7 +139,9 @@ namespace config
 	{
 		std::string str = config::varmap["PS1"];
 
-		char *prompt = new char[256];
+		char *prompt = new char[::MAX_STR_LEN];
+
+		config::varmap["PS1"].clear();
 
 		if (str[0] == (char) 0) {
 			config::varmap["PS1"] = "# ";
@@ -186,7 +196,6 @@ namespace config
 				else args = line;
 			}
 			
-			std::cout << fw << '\n' << args << '\n';
 			config::parse(fw, args);
 		}
 
@@ -196,7 +205,7 @@ namespace config
 	/* sets up variables from the config file */
 	void setup (void)
 	{
-		char wd[256];
+		char wd[::MAX_STR_LEN];
 
 		/* get info about the user */
 		sys::get_info();
@@ -222,39 +231,6 @@ namespace config
 
 namespace cmd
 {
-	class history {
-		public:
-			std::string prev;
-			std::vector<std::string> history_store;
-
-			std::string mono_str (char *str[])
-			{
-				std::string mono;
-
-				for (size_t i = 0; str[i] != nullptr; i++) {
-					if (i > 0) {
-						mono += " ";
-						mono += str[i];
-					}
-
-					else mono += str[i];
-				}
-
-				return mono;
-			}
-
-			/* writes the history the history vector */
-			void write (char *argv[])
-			{
-				std::string str = cmd::history::mono_str(argv);
-				history_store.push_back(str);
-				//std::cout << "his = " << *history_store.rbegin() << '\n';
-				//std::cout << "str = " << str << '\n';
-			}
-	};
-
-	cmd::history history;
-
 	/* prints text to console passed at command line */
 	void echo (char **argv)
 	{
@@ -290,18 +266,6 @@ namespace cmd
 	// TODO
 	void prev_cmd (char **argv)
 	{
-		//int argc;
-		//char *arg[256];
-		//std::string str = cmd::history::*history_store.rbegin();
-		std::string tmp;
-		//std::istringstream iss(str);
-
-		/*for (int i = 0; i < 1; i++, argc++) {
-			std::getline(iss, tmp, ' ');
-			if (i == 0) cmd_str = tmp;
-		}*/
-
-		//cli::run_cmd(argc, str.c_str());
 	}
 
 	void quit (char **argv)
@@ -309,9 +273,10 @@ namespace cmd
 		exit(0);
 	}
 
+	// TODO
 	void export_cmd (char **argv)
 	{
-
+		
 	}
 
 	/* implementation of the cd command */
@@ -333,8 +298,8 @@ namespace cli
 
 	/* the built in shell commands 
 	 * Ones at top are 'most used' */
-	constexpr size_t max = 6;
-	struct SHELL_CMDS shell_cmds[max] = {
+	constexpr size_t SHELL_CMDS_MAX = 6;
+	struct SHELL_CMDS shell_cmds[SHELL_CMDS_MAX] = {
 		{ "cd", cmd::cd },
 		{ "echo", cmd::echo },
 		{ "!!", cmd::prev_cmd },
@@ -344,15 +309,15 @@ namespace cli
 	};
 
 	/* returns index of the matching command in shell_cmds struct */
-	ssize_t is_built_in (char *cmd)
+	ssize_t is_built_in (char *str)
 	{
 		// TODO seg faulting ??
 		/*for (size_t i = 0; shell_cmds[i].cmd != nullptr; i++)
 			if (!strncmp(shell_cmds[i].cmd, cmd, strlen(shell_cmds[i].cmd)))
 				return i;*/
 
-		for (size_t i = 0; i < max; i++)
-			if (!strncmp(shell_cmds[i].cmd, cmd, strlen(shell_cmds[i].cmd)))
+		for (size_t i = 0; i < cli::SHELL_CMDS_MAX; i++)
+			if (!strncmp(shell_cmds[i].cmd, str, strlen(shell_cmds[i].cmd)))
 				return i;
 
 		return -1;
@@ -412,13 +377,13 @@ namespace cli
 	/* splits up string by whitespace and executes it */
 	void cli_str_handler (char *str)
 	{
-		char *argv[256];
+		char *argv[::MAX_STR_LEN];
 		char **tmp;
 
 		/* split up string by whitespace chars like tab and space */
 		for (tmp = argv; (*tmp = strsep(&str, " \t")) != NULL;)
 			if (**tmp != (char) 0)
-				if (++tmp >= &argv[256])
+				if (++tmp >= &argv[::MAX_STR_LEN])
 					break;
 
 		cli::run_cmd(argv);
@@ -434,7 +399,7 @@ namespace cli
 	 * this is the main loop of the program */
 	void input_loop (void)
 	{
-		char buf[256];
+		char buf[MAX_STR_LEN];
 		char *pbuf;
 
 		for (;;) {
